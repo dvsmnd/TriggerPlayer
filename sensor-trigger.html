@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sensor trigger</title>
+<style>
+:root{--bg:#f3f1ec;--panel:#fff;--ink:#1d2327;--muted:#6a7378;--line:#d8d5cd;--accent:#1f5eff;--hot:#e8452c;--ok:#16a06a;--track:#e6e3db}
+@media (prefers-color-scheme:dark){:root{--bg:#14181b;--panel:#1d2226;--ink:#e8ecee;--muted:#8c979d;--line:#2f373c;--accent:#6f99ff;--hot:#ff7459;--ok:#37c58d;--track:#2a3135}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif}
+header{padding:16px 24px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+h1{font-size:20px;margin:0;font-weight:650}
+#status{margin-left:auto;display:flex;align-items:center;gap:8px;color:var(--muted)}
+#dot{width:10px;height:10px;border-radius:50%;background:var(--muted)}#dot.on{background:var(--ok)}
+main{display:grid;grid-template-columns:minmax(280px,340px) 1fr;gap:20px;padding:20px 24px;max-width:1500px;margin:0 auto}
+@media(max-width:900px){main{grid-template-columns:1fr}}
+section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:16px}
+h2{font-size:15px;margin:0 0 10px;font-weight:650}
+label{display:block;color:var(--muted);font-size:13px;margin:9px 0 3px}
+label.chk{display:flex;gap:8px;align-items:center;color:var(--ink)}
+select,input[type=number],input[type=text],input[type=file]{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit}
+input[type=file]{font-size:13px}
+input[type=range]{width:100%;accent-color:var(--accent)}
+button{font:inherit;padding:7px 12px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.big{width:100%;padding:11px;font-size:16px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{display:flex;gap:10px;align-items:flex-end}.row>*{flex:1}
+.note{color:var(--muted);font-size:13px;margin:8px 0 0}
+#stage{position:relative;aspect-ratio:16/9;background:#000;border-radius:8px;overflow:hidden}
+#stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+#stage video.idle{visibility:hidden}
+#stage:fullscreen{aspect-ratio:auto;border-radius:0}
+#stage.nocursor,#stage.nocursor *{cursor:none}
+#hud{display:none;position:absolute;left:14px;bottom:14px;color:#fff;font:14px/1.4 ui-monospace,Consolas,monospace;background:rgba(0,0,0,.6);padding:8px 12px;border-radius:6px;white-space:pre;z-index:5}
+#stage.showhud #hud{display:block}
+canvas{width:100%;height:130px;display:block;background:var(--bg);border-radius:6px;border:1px solid var(--line)}
+#log{height:120px;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px;font:12px/1.4 ui-monospace,Consolas,monospace;white-space:pre-wrap}
+#mwarn{display:none;margin-top:8px;padding:10px 12px;border-radius:6px;background:#fff3d6;color:#4d3600;font-size:13px}
+#mwarn code{display:block;margin-top:6px;padding:6px 8px;background:rgba(0,0,0,.08);border-radius:4px;user-select:all;word-break:break-all;font:12px ui-monospace,Consolas,monospace}
+#warn{display:none;background:#ffe9e4;color:#7a1d0d;padding:12px 24px}
+.chs{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:16px}
+.chs section{margin:0}
+.chead{display:flex;align-items:center;gap:8px}
+.sw{width:12px;height:12px;border-radius:3px;flex:none}
+.name{font-weight:650;border:0!important;background:transparent!important;padding:2px 0!important}
+.val{margin-left:auto;font:700 28px/1 ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
+.val.hit{color:var(--hot)}
+.meter{position:relative;height:14px;background:var(--track);border-radius:7px;margin:10px 0 2px;overflow:hidden}
+.fill{height:100%;background:var(--accent);width:0}.fill.hit{background:var(--hot)}
+.tick{position:absolute;top:0;bottom:0;width:3px;background:var(--ink)}
+.ch.sel{border-color:var(--accent)}
+details pre{background:var(--bg);border:1px solid var(--line);padding:10px;border-radius:6px;overflow:auto;font-size:12px}
+summary{cursor:pointer;font-weight:600}
+</style>
+</head>
+<body>
+<div id="warn">Web Serial isn’t available in this browser. Open this file in Chrome or Edge on a desktop computer.</div>
+<header><h1>Sensor trigger</h1><div id="status"><span id="dot"></span><span id="statusText">Not connected</span></div></header>
+<main>
+<div>
+  <section>
+    <h2>1. Connect to the Arduino</h2>
+    <div class="row">
+      <select id="baud" aria-label="Baud rate"><option>9600</option><option selected>115200</option><option>57600</option><option>19200</option></select>
+      <button id="connect" class="primary">Connect</button>
+    </div>
+    <p class="note">Close the Serial Monitor first. Match the baud rate to <code>Serial.begin()</code>. Send all sensors on <b>one line</b>, separated by commas or spaces.</p>
+    <label>Number of sensors<select id="count"></select></label>
+    <label class="chk"><input type="checkbox" id="autoPort"> Reconnect automatically to the last port</label>
+  </section>
+  <section>
+    <h2>2. Playback</h2>
+    <label>If a video is already playing and another sensor triggers
+      <select id="policy"><option value="replace">Switch to the new video</option><option value="ignore">Ignore the new video</option></select></label>
+    <label>Screen when no video plays
+      <select id="idle"><option value="black">Black</option><option value="hold">Keep the last video’s final frame</option></select></label>
+    <p class="note">Audio files from different sensors can play at the same time.</p>
+    <button id="stopAll" style="margin-top:10px;width:100%">Stop everything</button>
+  </section>
+  <section>
+    <h2>3. Show it</h2>
+    <button id="exhibit" class="primary big">Start exhibition mode</button>
+    <p class="note">Esc leaves. <b>D</b> shows values, <b>1–8</b> selects a sensor, <b>↑ / ↓</b> change its threshold (Shift = bigger steps).</p>
+    <div class="note" id="mstatus" role="status">Choose files on the sensor cards, then press Test.</div>
+    <div id="mwarn"></div>
+    <details style="margin-top:10px"><summary>What can this browser play?</summary><div class="note" id="codecs"></div></details>
+  </section>
+  <section>
+    <h2>Raw serial input</h2><div id="log"></div>
+    <details style="margin-top:10px"><summary>Example Arduino sketch</summary>
+<pre>void setup() { Serial.begin(115200); }
+void loop() {
+  Serial.print(analogRead(A0));
+  Serial.print(",");
+  Serial.print(analogRead(A1));
+  Serial.print(",");
+  Serial.println(analogRead(A2));
+  delay(20);
+}</pre></details>
+  </section>
+</div>
+<div>
+  <section style="padding:10px"><div id="stage"><div id="hud"></div></div></section>
+  <section><h2>Sensor history</h2><canvas id="graph" width="1000" height="130" aria-label="Sensor history"></canvas></section>
+  <div class="chs" id="chs"></div>
+</div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const COLORS = ['#1f5eff','#e8452c','#16a06a','#c98a00','#8a3ffc','#00a3b8','#d6247d','#6a7378'];
+const MAX = 8, HIST = 500;
+const chs = [], stage = $('stage'), hudEl = $('hud');
+let sel = 0, port, reader, closing = false, wake = null, cursorTimer;
+if (!('serial' in navigator)) $('warn').style.display = 'block';
+
+const VCMD = 'ffmpeg -i input.mov -c:v libx264 -pix_fmt yuv420p -crf 20 -c:a aac -movflags +faststart output.mp4';
+const ACMD = 'ffmpeg -i input.aif -c:a aac -b:a 192k output.m4a';
+const ERR = {1:'loading was aborted',2:'network/file read error',3:'file damaged or unsupported feature',4:'format or codec not supported by this browser'};
+function log(t) { const l = $('log'); l.textContent += t + '\n'; if (l.textContent.length > 4000) l.textContent = l.textContent.slice(-3000); l.scrollTop = l.scrollHeight; }
+function status(t) { $('mstatus').textContent = t; }
+function warn(msg, cmd) { const w = $('mwarn'); w.style.display = msg ? 'block' : 'none'; w.innerHTML = msg ? msg + '<code>' + cmd + '</code>Replace input/output with your file names (needs <a href="https://ffmpeg.org" target="_blank" rel="noopener">ffmpeg</a>).' : ''; }
+function wrapType(f) { // Chrome can refuse H.264 .mov files labelled video/quicktime
+  return (!f.type || f.type === 'video/quicktime' || f.type === 'video/x-m4v') ? new Blob([f], { type: 'video/mp4' }) : f;
+}
+(function () {
+  const t = [['H.264 mp4','video/mp4; codecs="avc1.42E01E, mp4a.40.2"'],['HEVC','video/mp4; codecs="hvc1.1.6.L93.B0"'],['WebM VP9','video/webm; codecs="vp9"'],['AV1','video/mp4; codecs="av01.0.05M.08"'],['MP3','audio/mpeg'],['AAC (m4a)','audio/mp4; codecs="mp4a.40.2"'],['WAV','audio/wav'],['OGG','audio/ogg; codecs="vorbis"'],['FLAC','audio/flac']];
+  const v = document.createElement('video');
+  $('codecs').innerHTML = t.map(([n, m]) => n + ': <b>' + (v.canPlayType(m) || 'no') + '</b>').join('<br>');
+})();
+
+// ---------- channels ----------
+function makeChannel(i, cfg) {
+  cfg = cfg || {};
+  const sec = document.createElement('section'); sec.className = 'ch';
+  sec.innerHTML = `
+  <div class="chead"><span class="sw" style="background:${COLORS[i]}"></span><input class="name" type="text" aria-label="Sensor name"><span class="val">–</span></div>
+  <div class="meter"><div class="fill"></div><div class="tick"></div></div>
+  <label>Threshold: <b class="tl"></b><input class="thr" type="range"></label>
+  <div class="row"><label>Range min<input class="min" type="number"></label><label>Range max<input class="max" type="number"></label></div>
+  <div class="row"><label>Trigger when<select class="dir"><option value="above">above</option><option value="below">below</option></select></label>
+  <label>Play<select class="act"><option value="video">video</option><option value="audio">audio</option><option value="both">both</option></select></label></div>
+  <label>Video file<input class="vfile" type="file" accept="video/*,.mov,.mp4,.m4v,.webm,.mkv,.avi,.ogv,.mpg,.mpeg,.wmv,.3gp"></label>
+  <label>Audio file<input class="afile" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.aif,.aiff,.flac,.ogg,.opus,.wma,.caf"></label>
+  <label>Cooldown (ms)<input class="cool" type="number" min="0" step="100"></label>
+  <label class="chk"><input class="norep" type="checkbox"> Ignore while this sensor’s media plays</label>
+  <label class="chk"><input class="loop" type="checkbox"> Loop</label>
+  <label class="chk"><input class="stopoff" type="checkbox"> Stop when the value leaves the zone</label>
+  <div class="row" style="margin-top:10px"><button class="test">Test</button><button class="stop">Stop</button></div>
+  <label>Simulate a value<input class="sim" type="range"></label>`;
+  $('chs').appendChild(sec);
+  const q = s => sec.querySelector(s);
+  const c = { i, sec, q, value: 0, wasHit: false, last: -1e9, hist: [], active: new Set(), aud: new Audio(), vid: document.createElement('video') };
+  c.vid.playsInline = true; c.vid.preload = 'auto'; c.vid.className = 'idle'; stage.insertBefore(c.vid, hudEl);
+  q('.name').value = cfg.name || 'Sensor ' + (i + 1);
+  q('.min').value = cfg.min ?? 0; q('.max').value = cfg.max ?? 1023;
+  q('.dir').value = cfg.dir || 'above'; q('.act').value = cfg.act || 'both';
+  q('.cool').value = cfg.cool ?? 1000; q('.norep').checked = cfg.norep ?? true;
+  q('.loop').checked = !!cfg.loop; q('.stopoff').checked = !!cfg.stopoff;
+  c.vid.loop = c.aud.loop = !!cfg.loop;
+  applyRange(c); if (cfg.thr !== undefined) q('.thr').value = cfg.thr; tick(c);
+
+  q('.min').addEventListener('change', () => applyRange(c)); q('.max').addEventListener('change', () => applyRange(c));
+  q('.thr').addEventListener('input', () => { tick(c); hud(); });
+  q('.sim').addEventListener('input', e => handle(c, +e.target.value));
+  q('.loop').addEventListener('change', () => { c.vid.loop = c.aud.loop = q('.loop').checked; });
+  q('.test').addEventListener('click', () => trigger(c, true));
+  q('.stop').addEventListener('click', () => stopC(c));
+  sec.addEventListener('focusin', () => select(i));
+  q('.vfile').addEventListener('change', e => {
+    const f = e.target.files[0]; if (!f) return; warn('');
+    c.vid.src = URL.createObjectURL(wrapType(f)); c.vid.load(); status(name(c) + ': video loaded (' + f.name + ')');
+  });
+  q('.afile').addEventListener('change', e => {
+    const f = e.target.files[0]; if (!f) return; warn('');
+    c.aud.src = URL.createObjectURL(f); c.aud.load(); status(name(c) + ': audio loaded (' + f.name + ')');
+  });
+  c.vid.addEventListener('error', () => { status(name(c) + ': video error ' + (c.vid.error ? c.vid.error.code : '?') + ', ' + (ERR[c.vid.error && c.vid.error.code] || 'unknown')); warn('The browser can’t decode this video (usually the codec, not the .mov/.mkv container). Convert it to H.264/AAC in an .mp4:', VCMD); });
+  c.vid.addEventListener('loadedmetadata', () => { if (!c.vid.videoWidth) warn('This file has no picture the browser can show. Convert it with:', VCMD); });
+  c.aud.addEventListener('error', () => { status(name(c) + ': audio error ' + (c.aud.error ? c.aud.error.code : '?') + ', ' + (ERR[c.aud.error && c.aud.error.code] || 'unknown')); warn('The browser can’t decode this audio file. Convert it to AAC (.m4a) or MP3:', ACMD); });
+  [c.vid, c.aud].forEach(m => m.addEventListener('ended', () => { c.active.delete(m); if (m === c.vid && $('idle').value === 'black') c.vid.classList.add('idle'); }));
+  return c;
+}
+const name = c => c.q('.name').value;
+function applyRange(c) {
+  const mn = +c.q('.min').value, mx = +c.q('.max').value; if (!(mn < mx)) return;
+  ['.thr', '.sim'].forEach(s => { const e = c.q(s); e.min = mn; e.max = mx; e.value = Math.min(mx, Math.max(mn, +e.value || mn)); });
+  c.q('.thr').value = Math.min(mx, Math.max(mn, +c.q('.thr').value || (mn + mx) / 2)); tick(c);
+}
+function tick(c) {
+  const mn = +c.q('.min').value, mx = +c.q('.max').value, t = +c.q('.thr').value;
+  c.q('.tl').textContent = t; c.q('.tick').style.left = ((t - mn) / (mx - mn) * 100) + '%';
+}
+function select(i) { sel = i; chs.forEach(c => c.sec.classList.toggle('sel', c.i === i)); hud(); }
+function setCount(n) {
+  while (chs.length < n) chs.push(makeChannel(chs.length));
+  while (chs.length > n) { const c = chs.pop(); stopC(c); c.vid.remove(); c.sec.remove(); }
+  $('count').value = n; if (sel >= n) sel = 0; select(sel); save();
+}
+for (let n = 1; n <= MAX; n++) $('count').add(new Option(n, n));
+$('count').addEventListener('change', () => setCount(+$('count').value));
+
+// ---------- playback ----------
+function fail(c, m, e, label) {
+  c.active.delete(m);
+  status(name(c) + ': ' + label + ' could not start: ' + e.name + ' – ' + e.message + (e.name === 'NotAllowedError' ? ' (click anywhere on this page once, then try again)' : ''));
+}
+function trigger(c, force) {
+  if (!force && c.q('.norep').checked && c.active.size) return;
+  const act = c.q('.act').value;
+  if (act !== 'audio') {
+    if (!c.vid.src) status(name(c) + ': no video file chosen');
+    else if (!force && $('policy').value === 'ignore' && chs.some(o => o !== c && o.active.has(o.vid))) { /* another video is playing */ }
+    else {
+      chs.forEach(o => { if (o !== c) { o.vid.pause(); o.active.delete(o.vid); o.vid.classList.add('idle'); } });
+      c.vid.currentTime = 0; c.vid.classList.remove('idle'); c.active.add(c.vid);
+      c.vid.play().then(() => status(name(c) + ': video playing')).catch(e => fail(c, c.vid, e, 'Video'));
+    }
+  }
+  if (act !== 'video') {
+    if (!c.aud.src) status(name(c) + ': no audio file chosen');
+    else { c.aud.currentTime = 0; c.active.add(c.aud); c.aud.play().then(() => status(name(c) + ': audio playing')).catch(e => fail(c, c.aud, e, 'Audio')); }
+  }
+}
+function stopC(c) { c.vid.pause(); c.aud.pause(); c.vid.currentTime = 0; c.aud.currentTime = 0; c.active.clear(); c.vid.classList.add('idle'); }
+$('stopAll').addEventListener('click', () => chs.forEach(stopC));
+
+// ---------- values ----------
+function handle(c, v) {
+  c.value = v;
+  const mn = +c.q('.min').value, mx = +c.q('.max').value, thr = +c.q('.thr').value;
+  const hit = c.q('.dir').value === 'above' ? v >= thr : v <= thr;
+  c.q('.val').textContent = Number.isInteger(v) ? v : v.toFixed(2);
+  c.q('.val').classList.toggle('hit', hit); c.q('.fill').classList.toggle('hit', hit);
+  c.q('.fill').style.width = Math.max(0, Math.min(100, (v - mn) / (mx - mn) * 100)) + '%';
+  const now = performance.now();
+  if (hit && !c.wasHit && now - c.last >= +c.q('.cool').value) { c.last = now; trigger(c); }
+  if (!hit && c.wasHit && c.q('.stopoff').checked) stopC(c);
+  c.wasHit = hit;
+  c.hist.push(v); if (c.hist.length > HIST) c.hist.shift();
+  hud();
+}
+function hud() {
+  if (!stage.classList.contains('showhud')) return;
+  hudEl.textContent = chs.map(c => (c.i === sel ? '▸ ' : '  ') + (c.i + 1) + ' ' + name(c) + ': ' + c.value + '   threshold ' + c.q('.thr').value + ' (' + c.q('.dir').value + ')').join('\n');
+}
+function draw() {
+  const cv = $('graph'), g = cv.getContext('2d'), w = cv.width, h = cv.height;
+  g.clearRect(0, 0, w, h);
+  chs.forEach(c => {
+    const mn = +c.q('.min').value, mx = +c.q('.max').value, y = v => h - 4 - (v - mn) / (mx - mn) * (h - 8);
+    g.strokeStyle = COLORS[c.i]; g.lineWidth = 1; g.globalAlpha = .45; g.setLineDash([5, 5]);
+    g.beginPath(); g.moveTo(0, y(+c.q('.thr').value)); g.lineTo(w, y(+c.q('.thr').value)); g.stroke();
+    g.globalAlpha = 1; g.setLineDash([]); g.lineWidth = 2; g.beginPath();
+    c.hist.forEach((v, k) => { const x = k / HIST * w; k ? g.lineTo(x, y(v)) : g.moveTo(x, y(v)); }); g.stroke();
+  });
+  requestAnimationFrame(draw);
+}
+
+// ---------- exhibition ----------
+$('exhibit').addEventListener('click', async () => {
+  try { await stage.requestFullscreen(); } catch (e) { status('Fullscreen: ' + e.message); return; }
+  chs.forEach(stopC);
+  try { wake = await navigator.wakeLock.request('screen'); } catch (e) {}
+});
+document.addEventListener('fullscreenchange', () => {
+  if (document.fullscreenElement !== stage) { stage.classList.remove('nocursor', 'showhud'); if (wake) { wake.release(); wake = null; } }
+});
+stage.addEventListener('mousemove', () => {
+  stage.classList.remove('nocursor'); clearTimeout(cursorTimer);
+  if (document.fullscreenElement === stage) cursorTimer = setTimeout(() => stage.classList.add('nocursor'), 2000);
+});
+document.addEventListener('keydown', e => {
+  if (document.fullscreenElement !== stage) return;
+  const c = chs[sel], t = c.q('.thr'), step = (+t.max - +t.min) * (e.shiftKey ? .1 : .01);
+  if (e.key === 'd' || e.key === 'D') stage.classList.toggle('showhud');
+  else if (/^[1-8]$/.test(e.key) && chs[+e.key - 1]) select(+e.key - 1);
+  else if (e.key === 'ArrowUp') t.value = Math.min(+t.max, +t.value + step);
+  else if (e.key === 'ArrowDown') t.value = Math.max(+t.min, +t.value - step);
+  else return;
+  e.preventDefault(); tick(c); save(); hud();
+});
+
+// ---------- serial ----------
+async function connect(known) {
+  try { port = known || await navigator.serial.requestPort(); await port.open({ baudRate: +$('baud').value }); }
+  catch (e) { log('Could not open port: ' + e.message); if (known) scheduleRetry(); return; }
+  closing = false; setStatus(true, 'Connected'); $('connect').textContent = 'Disconnect'; readLoop();
+}
+function setStatus(on, t) { $('dot').classList.toggle('on', on); $('statusText').textContent = t; }
+async function readLoop() {
+  const dec = new TextDecoderStream(), done = port.readable.pipeTo(dec.writable).catch(() => {});
+  reader = dec.readable.getReader(); let buf = '';
+  try {
+    while (true) {
+      const { value, done: fin } = await reader.read(); if (fin) break;
+      buf += value; const lines = buf.split(/\r?\n/); buf = lines.pop();
+      for (const line of lines) {
+        if (!line.trim()) continue; log(line);
+        const nums = line.trim().split(/[\s,;:]+/).map(parseFloat).filter(n => !isNaN(n));
+        if (nums.length > chs.length) setCount(Math.min(nums.length, MAX));
+        nums.slice(0, chs.length).forEach((v, k) => handle(chs[k], v));
+      }
+    }
+  } catch (e) { log('Read error: ' + e.message); }
+  try { reader.releaseLock(); } catch (e) {}
+  await done; try { await port.close(); } catch (e) {}
+  setStatus(false, 'Not connected'); $('connect').textContent = 'Connect';
+  if (!closing) scheduleRetry();
+}
+function scheduleRetry() {
+  if (!$('autoPort').checked) return; setStatus(false, 'Waiting for the Arduino…');
+  setTimeout(async () => {
+    if (port && port.readable) return;
+    const ps = await navigator.serial.getPorts(); if (ps.length) connect(ps[0]); else scheduleRetry();
+  }, 3000);
+}
+$('connect').addEventListener('click', async () => {
+  if (port && port.readable && !closing) { closing = true; try { await reader.cancel(); } catch (e) {} } else connect();
+});
+
+// ---------- remember settings ----------
+function save() {
+  try {
+    localStorage.setItem('sensorTrigger3', JSON.stringify({
+      n: chs.length, baud: $('baud').value, auto: $('autoPort').checked, policy: $('policy').value, idle: $('idle').value,
+      ch: chs.map(c => ({ name: name(c), min: c.q('.min').value, max: c.q('.max').value, thr: c.q('.thr').value, dir: c.q('.dir').value, act: c.q('.act').value, cool: c.q('.cool').value, norep: c.q('.norep').checked, loop: c.q('.loop').checked, stopoff: c.q('.stopoff').checked }))
+    }));
+  } catch (e) {}
+}
+document.addEventListener('input', save); document.addEventListener('change', save);
+(function restore() {
+  let o = null; try { o = JSON.parse(localStorage.getItem('sensorTrigger3')); } catch (e) {}
+  if (o) { $('baud').value = o.baud; $('autoPort').checked = o.auto; $('policy').value = o.policy; $('idle').value = o.idle; }
+  const n = o ? o.n : 2;
+  for (let i = 0; i < n; i++) chs.push(makeChannel(i, o && o.ch[i]));
+  $('count').value = n; select(0); draw();
+  if ('serial' in navigator && $('autoPort').checked) navigator.serial.getPorts().then(ps => { if (ps.length) connect(ps[0]); });
+})();
+</script>
+</body>
+</html>
